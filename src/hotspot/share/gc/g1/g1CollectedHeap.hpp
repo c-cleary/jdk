@@ -36,6 +36,7 @@
 #include "gc/g1/g1EvacStats.hpp"
 #include "gc/g1/g1EvacuationInfo.hpp"
 #include "gc/g1/g1GCPhaseTimes.hpp"
+#include "gc/g1/g1GCTypes.hpp"
 #include "gc/g1/g1HeapTransition.hpp"
 #include "gc/g1/g1HeapVerifier.hpp"
 #include "gc/g1/g1HRPrinter.hpp"
@@ -44,7 +45,6 @@
 #include "gc/g1/g1NUMA.hpp"
 #include "gc/g1/g1RedirtyCardsQueue.hpp"
 #include "gc/g1/g1SurvivorRegions.hpp"
-#include "gc/g1/g1YCTypes.hpp"
 #include "gc/g1/heapRegionManager.hpp"
 #include "gc/g1/heapRegionSet.hpp"
 #include "gc/shared/barrierSet.hpp"
@@ -79,6 +79,7 @@ class G1CollectionSet;
 class G1Policy;
 class G1HotCardCache;
 class G1RemSet;
+class G1ServiceTask;
 class G1ServiceThread;
 class G1ConcurrentMark;
 class G1ConcurrentMarkThread;
@@ -154,6 +155,7 @@ class G1CollectedHeap : public CollectedHeap {
 
 private:
   G1ServiceThread* _service_thread;
+  G1ServiceTask* _periodic_gc_task;
 
   WorkGang* _workers;
   G1CardTable* _card_table;

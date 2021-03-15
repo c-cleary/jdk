@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -823,8 +823,7 @@ bool GraphKit::dead_locals_are_killed() {
 
 #endif //ASSERT
 
-// Helper function for enforcing certain bytecodes to reexecute if
-// deoptimization happens
+// Helper function for enforcing certain bytecodes to reexecute if deoptimization happens.
 static bool should_reexecute_implied_by_bytecode(JVMState *jvms, bool is_anewarray) {
   ciMethod* cur_method = jvms->method();
   int       cur_bci   = jvms->bci();
@@ -839,8 +838,9 @@ static bool should_reexecute_implied_by_bytecode(JVMState *jvms, bool is_anewarr
     // is limited by dimensions and guarded by flag so in some cases
     // multianewarray() runtime calls will be generated and
     // the bytecode should not be reexecutes (stack will not be reset).
-  } else
+  } else {
     return false;
+  }
 }
 
 // Helper function for adding JVMState and debug information to node
@@ -894,6 +894,12 @@ void GraphKit::add_safepoint_edges(SafePointNode* call, bool must_throw) {
   // deoptimization happens. We set the reexecute state for them here
   if (out_jvms->is_reexecute_undefined() && //don't change if already specified
       should_reexecute_implied_by_bytecode(out_jvms, call->is_AllocateArray())) {
+#ifdef ASSERT
+    int inputs = 0, not_used; // initialized by GraphKit::compute_stack_effects()
+    assert(method() == youngest_jvms->method(), "sanity");
+    assert(compute_stack_effects(inputs, not_used), "unknown bytecode: %s", Bytecodes::name(java_bc()));
+    assert(out_jvms->sp() >= (uint)inputs, "not enough operands for reexecution");
+#endif // ASSERT
     out_jvms->set_should_reexecute(true); //NOTE: youngest_jvms not changed
   }
 
@@ -1460,6 +1466,7 @@ void GraphKit::replace_in_map(Node* old, Node* neww) {
 Node* GraphKit::memory(uint alias_idx) {
   MergeMemNode* mem = merged_memory();
   Node* p = mem->memory_at(alias_idx);
+  assert(p != mem->empty_memory(), "empty");
   _gvn.set_type(p, Type::MEMORY);  // must be mapped
   return p;
 }
@@ -1993,9 +2000,9 @@ void GraphKit::increment_counter(address counter_addr) {
 void GraphKit::increment_counter(Node* counter_addr) {
   int adr_type = Compile::AliasIdxRaw;
   Node* ctrl = control();
-  Node* cnt  = make_load(ctrl, counter_addr, TypeInt::INT, T_INT, adr_type, MemNode::unordered);
-  Node* incr = _gvn.transform(new AddINode(cnt, _gvn.intcon(1)));
-  store_to_memory(ctrl, counter_addr, incr, T_INT, adr_type, MemNode::unordered);
+  Node* cnt  = make_load(ctrl, counter_addr, TypeLong::LONG, T_LONG, adr_type, MemNode::unordered);
+  Node* incr = _gvn.transform(new AddLNode(cnt, _gvn.longcon(1)));
+  store_to_memory(ctrl, counter_addr, incr, T_LONG, adr_type, MemNode::unordered);
 }
 
 
@@ -2494,8 +2501,7 @@ Node* GraphKit::make_runtime_call(int flags,
   }
   CallNode* call;
   if (!is_leaf) {
-    call = new CallStaticJavaNode(call_type, call_addr, call_name,
-                                           bci(), adr_type);
+    call = new CallStaticJavaNode(call_type, call_addr, call_name, adr_type);
   } else if (flags & RC_NO_FP) {
     call = new CallLeafNoFPNode(call_type, call_addr, call_name, adr_type);
   } else {
@@ -2626,9 +2632,9 @@ Node* GraphKit::make_native_call(const TypeFunc* call_type, uint nargs, ciNative
 
   address call_addr = nep->entry_point();
   if (nep->need_transition()) {
-    BufferBlob* invoker = SharedRuntime::make_native_invoker(call_addr,
-                                                             nep->shadow_space(),
-                                                             arg_regs, ret_regs);
+    RuntimeStub* invoker = SharedRuntime::make_native_invoker(call_addr,
+                                                              nep->shadow_space(),
+                                                              arg_regs, ret_regs);
     if (invoker == NULL) {
       C->record_failure("native invoker not implemented on this platform");
       return NULL;
@@ -3311,7 +3317,13 @@ Node* GraphKit::gen_checkcast(Node *obj, Node* superklass,
       case Compile::SSC_always_false:
         // It needs a null check because a null will *pass* the cast check.
         // A non-null value will always produce an exception.
-        return null_assert(obj);
+        if (!objtp->maybe_null()) {
+          builtin_throw(Deoptimization::Reason_class_check, makecon(TypeKlassPtr::make(objtp->klass())));
+          return top();
+        } else if (!too_many_traps_or_recompiles(Deoptimization::Reason_null_assert)) {
+          return null_assert(obj);
+        }
+        break; // Fall through to full check
       }
     }
   }
